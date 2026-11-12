@@ -8,23 +8,23 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 # ==========================================
-# CONFIGURACIÓN
+# CONFIGURATION
 # ==========================================
 
 GENIUS_TOKEN = os.getenv("GENIUS_TOKEN")
 
 if not GENIUS_TOKEN:
-    print("ERROR: Falta GENIUS_TOKEN.")
+    print("ERROR: Missing GENIUS_TOKEN.")
     sys.exit(1)
 
-TIEMPO_ESPERA = 90 * 1000
+WAIT_TIME = 90 * 1000
 
-# Perfil persistente de Firefox
-PERFIL_FIREFOX = Path.home() / "Programas" / "scripts" / "perfil_genius"
-PERFIL_FIREFOX.mkdir(parents=True, exist_ok=True)
 
-# Preguntar antes de insertar [Instrumental]
-MARCAR_INSTRUMENTAL = False
+PLAYWRIGHT_PROFILE = Path.home() / "Programas" / "scripts" / "perfil_genius"
+PLAYWRIGHT_PROFILE.mkdir(parents=True, exist_ok=True)
+
+# Ask before inserting "[Instrumental]""
+MARK_INSTRUMENTAL = False
 
 genius = lyricsgenius.Genius(
     GENIUS_TOKEN,
@@ -34,45 +34,45 @@ genius = lyricsgenius.Genius(
 
 
 # ==========================================
-# LIMPIAR LETRA
+# SANITIZE LYRICS
 # ==========================================
 
-def limpiar_letra(letra, titulo):
+def SanitizeLyrics(lyrics, titulo):
 
-    letra = re.sub(
+    lyrics = re.sub(
         r'^\s*\d+\s+Contributors\s*\n',
         '',
-        letra,
+        lyrics,
         flags=re.IGNORECASE
     )
 
-    letra = re.sub(
+    lyrics = re.sub(
         r'^\s*' + re.escape(titulo) + r'\s+Lyrics\s*\n',
         '',
-        letra,
+        lyrics,
         count=1,
         flags=re.IGNORECASE
     )
 
-    letra = re.sub(
+    lyrics = re.sub(
         r'\n{3,}',
         '\n\n',
-        letra
+        lyrics
     )
 
-    return letra.strip()
+    return lyrics.strip()
 
 
 # ==========================================
-# OBTENER LETRA MEDIANTE FIREFOX
+# GET LYRICS WITH PLAYWRIGHT
 # ==========================================
 
-def obtener_letra_firefox(url):
+def getLyricsPlaywright(url):
 
        with sync_playwright() as p:
 
         context = p.firefox.launch_persistent_context(
-            user_data_dir=str(PERFIL_FIREFOX),
+            user_data_dir=str(PLAYWRIGHT_PROFILE),
             headless=False,
             viewport={"width": 1366, "height": 900}
         )
@@ -80,7 +80,7 @@ def obtener_letra_firefox(url):
         try:
             page = context.pages[0] if context.pages else context.new_page()
 
-            print("Abriendo Genius:", url)
+            print("Opening Genius:", url)
 
             page.goto(
                 url,
@@ -88,7 +88,7 @@ def obtener_letra_firefox(url):
                 timeout=60000
             )
 
-            contenedores = page.locator(
+            containers = page.locator(
                 'div[data-lyrics-container="true"]'
             )
 
@@ -96,44 +96,44 @@ def obtener_letra_firefox(url):
             # Si aparece una verificación de Cloudflare,
             # podrás resolverla manualmente en Firefox.
 
-            print("Esperando a que Genius esté disponible...")
+            print("Waiting for Genius to be avaliable")
 
-            limite = 180  # segundos
+            limit = 180  # segundos
 
-            for segundo in range(limite):
+            for second in range(limit):
 
-                if contenedores.count() > 0:
+                if containers.count() > 0:
 
-                    partes = contenedores.all_inner_texts()
-                    letra = "\n".join(partes).strip()
+                    parts = containers.all_inner_texts()
+                    lyrics = "\n".join(parts).strip()
 
-                    if letra:
-                        print("Letra encontrada correctamente.")
-                        return letra
+                    if lyrics:
+                        print("Lyrics found succesfully.")
+                        return lyrics
 
-                titulo = page.title().lower()
+                title = page.title().lower()
 
-                contenido = page.locator("body").inner_text(
+                content = page.locator("body").inner_text(
                     timeout=3000
                 ).lower()
 
                 if (
-                    "just a moment" in titulo
-                    or "verify you are human" in contenido
-                    or "checking your browser" in contenido
+                    "just a moment" in title
+                    or "verify you are human" in content
+                    or "checking your browser" in content
                 ):
-                    if segundo == 0:
+                    if second == 0:
                         print(
-                            "Cloudflare está verificando "
-                            "el acceso. Si solicita un CAPTCHA, "
-                            "resuélvelo manualmente."
+                            "Cloudflare is verifying "
+                            "the access, if it request a CAPTCHA "
+                            "resolve it manually."
                         )
 
                 page.wait_for_timeout(1000)
 
             raise RuntimeError(
-                "No se pudo obtener la letra después de "
-                f"{limite} segundos."
+                f"Couldn't get the lyrics after "
+                f"{limit} seconds."
             )
 
         finally:
@@ -142,20 +142,20 @@ def obtener_letra_firefox(url):
 
 
 # ==========================================
-# MARCAR COMO INSTRUMENTAL
+# MARk AS INSTRUMENTAL
 # ==========================================
 
-def marcar_instrumental(audiofile, titulo):
+def markInstrumental(audiofile, titulo):
 
-    if not MARCAR_INSTRUMENTAL:
-        print("No se marcará como instrumental.")
+    if not MARK_INSTRUMENTAL:
+        print("Won't get marked as instrumental")
         return
 
-    respuesta = input(
-        f"¿Añadir [Instrumental] a '{titulo}'? (s/n): "
+    answer = input(
+        f"¿Add [Instrumental] to '{titulo}'? (s/n): "
     ).strip().lower()
 
-    if respuesta == "s":
+    if answer == "s":
 
         audiofile.tag.lyrics.set(
             "[Instrumental]",
@@ -164,26 +164,26 @@ def marcar_instrumental(audiofile, titulo):
 
         audiofile.tag.save()
 
-        print("[Instrumental] añadido correctamente.")
+        print("[Instrumental] added.")
 
     else:
-        print("Se ha omitido esta canción.")
+        print("the song was skipped.")
 
 
 # ==========================================
-# PROCESAR MP3
+# PROCESS MP3
 # ==========================================
 
-def agregar_letra_a_mp3(archivo_mp3):
+def insertLyricsToFile(archivo_mp3):
 
     if not os.path.isfile(archivo_mp3):
-        print("Archivo inexistente:", archivo_mp3)
+        print("Missing file:", archivo_mp3)
         return
 
     audiofile = eyed3.load(archivo_mp3)
 
     if audiofile is None:
-        print("No se pudo abrir el MP3.")
+        print("Couldn't open the MP3.")
         return
 
     if audiofile.tag is None:
@@ -193,14 +193,12 @@ def agregar_letra_a_mp3(archivo_mp3):
     artista = audiofile.tag.artist
 
     if not titulo or not artista:
-        print("Falta título o artista.")
+        print("Missing artist or title.")
         return
 
-    print(f"\nBuscando: {artista} - {titulo}")
+    print(f"\nSearching: {artista} - {titulo}")
 
     try:
-
-        # Buscar canción en Genius
         resultados = genius.search_songs(
             f"{titulo} {artista}"
         )
@@ -209,30 +207,30 @@ def agregar_letra_a_mp3(archivo_mp3):
 
         if not hits:
             print("No se encontraron resultados en Genius.")
-            marcar_instrumental(audiofile, titulo)
+            markInstrumental(audiofile, titulo)
             return
 
-        # Seleccionar SIEMPRE el primer resultado
-        cancion = hits[0]["result"]
+        # Select always the first result
+        song = hits[0]["result"]
 
-        url = cancion["url"]
+        url = song["url"]
 
-        print("Primer resultado seleccionado:")
-        print(cancion["full_title"])
+        print("First result selected:")
+        print(song["full_title"])
         print("URL:", url)
 
-        print("Obteniendo letra mediante Firefox...")
+        print("Getting lyrics with Playwiright...")
 
-        letra = obtener_letra_firefox(url)
+        letra = getLyricsPlaywright(url)
 
-        letra = limpiar_letra(
+        letra = SanitizeLyrics(
             letra,
-            cancion["title"]
+            song["title"]
         )
 
         if not letra:
             print("No se obtuvo una letra válida.")
-            marcar_instrumental(audiofile, titulo)
+            markInstrumental(audiofile, titulo)
             return
 
         # Guardar letra en MP3
@@ -243,28 +241,28 @@ def agregar_letra_a_mp3(archivo_mp3):
 
         audiofile.tag.save()
 
-        print("¡Letra añadida correctamente!")
+        print("Lyrics added successfully!")
 
     except PlaywrightTimeout:
-        print("Tiempo agotado esperando la página.")
-        print("No se marcará como instrumental.")
+        print("Timeout while searching the page.")
+        print("Won't be marked as instrumental.")
 
     except Exception as e:
         print("Error:", e)
-        print("No se marcará como instrumental por un error.")
+        print("Won't be marked as instrumental for a unexpected error.")
 
 
 # ==========================================
-# PROGRAMA PRINCIPAL
+# MAIN
 # ==========================================
 
 def main():
 
     if len(sys.argv) < 2:
-        print("Uso: python add_lyrics.py archivo.mp3")
+        print("Usage: python add_lyrics.py file.mp3")
         sys.exit(1)
 
-    agregar_letra_a_mp3(sys.argv[1])
+    insertLyricsToFile(sys.argv[1])
 
 
 if __name__ == "__main__":

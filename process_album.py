@@ -10,12 +10,14 @@ import subprocess
 from pathlib import Path
 
 # ==========================================
-# CONFIGURACIÓN
+# CONFIGURATION
 # ==========================================
 
-CARPETA_MUSICA = Path.home() / "Música"
+# TO DO: extract these to a .env file
 
-SCRIPT_LETRAS = (
+MUSIC_FOLDER = Path.home() / "Música"
+
+SCRIPT_LYRICS = (
     Path.home() / "Programas" / "scripts" / "add_lyrics.py"
 )
 
@@ -24,379 +26,379 @@ PYTHON_LETRAS = (
 )
 
 # ==========================================
-# COMPROBAR PROGRAMAS
+# 
 # ==========================================
 
-def comprobar_programa(nombre):
+def checkProgram(nombre):
 
     if shutil.which(nombre) is None:
-        print(f"ERROR: No se encuentra {nombre}.")
+        print(f"ERROR: not found {nombre}.")
         sys.exit(1)
 
 
 # ==========================================
-# LEER METADATOS
+# READ METADATA
 # ==========================================
 
-def obtener_metadatos(archivo):
+def getMetadata(file):
 
-    resultado = subprocess.run(
+    result = subprocess.run(
         [
             "ffprobe",
             "-v", "quiet",
             "-show_entries", "format_tags",
             "-of", "json",
-            str(archivo)
+            str(file)
         ],
         capture_output=True,
         text=True
     )
 
-    if resultado.returncode != 0:
+    if result.returncode != 0:
         return {}
 
     try:
-        datos = json.loads(resultado.stdout)
-        return datos.get("format", {}).get("tags", {})
+        data = json.loads(result.stdout)
+        return data.get("format", {}).get("tags", {})
     except (json.JSONDecodeError, AttributeError):
         return {}
 
 
-def obtener_tag(tags, nombre):
+def getTags(tags, name):
 
-    for clave, valor in tags.items():
-        if clave.casefold() == nombre.casefold():
-            return str(valor).strip()
+    for key, value in tags.items():
+        if key.casefold() == name.casefold():
+            return str(value).strip()
 
     return ""
 
 
 # ==========================================
-# ARTISTAS
+# ARTISTS
 # ==========================================
 
-def separar_artistas(artista):
+def splitArtists(artist):
 
     return [
         nombre.strip()
-        for nombre in artista.split("/")
+        for nombre in artist.split("/")
         if nombre.strip()
     ]
 
 
-def es_colaboracion(artista):
+def isColaboration(artist):
 
-    return len(separar_artistas(artista)) >= 2
+    return len(splitArtists(artist)) >= 2
 
 
-def normalizar_artista(artista, todas_colaborativas):
+def normalize_artist(artist, all_colaborative):
 
-    artistas = separar_artistas(artista)
+    artists = splitArtists(artist)
 
-    if not artistas:
+    if not artists:
         return ""
 
-    if todas_colaborativas:
-        return " & ".join(artistas)
+    if all_colaborative:
+        return " & ".join(artists)
 
-    return artistas[0]
+    return artists[0]
 
 
 # ==========================================
-# NÚMERO DE PISTA
+# TRACK NUMBER
 # ==========================================
 
-def obtener_numero_pista(tags):
+def getTrackNumber(tags):
 
-    pista = obtener_tag(tags, "track")
+    track = getTags(tags, "track")
 
-    if not pista:
+    if not track:
         return 1
 
-    pista = pista.split("/")[0].strip()
+    track = track.split("/")[0].strip()
 
     try:
-        return int(pista)
+        return int(track)
     except ValueError:
         return 1
 
 
 # ==========================================
-# PROCESAR METADATOS Y RENOMBRAR
+# PROCESS METADATA AND RENAME
 # ==========================================
 
-def procesar_cancion(
-    archivo,
-    genero,
-    anio,
-    artista,
-    titulo,
-    numero
+def processSong(
+    file,
+    gender,
+    year,
+    artist,
+    title,
+    number
 ):
 
-    extension = archivo.suffix
+    extension = file.suffix
 
-    nuevo_nombre = (
-        f"{numero}. {artista} - {titulo}{extension}"
+    newName = (
+        f"{number}. {artist} - {title}{extension}"
     )
 
-    destino = archivo.parent / nuevo_nombre
+    destiny = file.parent / newName
 
-    if destino != archivo and destino.exists():
-        print(f"ERROR: Ya existe {destino.name}")
+    if destiny != file and destiny.exists():
+        print(f"ERROR: Ya existe {destiny.name}")
         return None
 
-    temporal = archivo.with_name(
-        archivo.stem + ".temporal" + extension
+    tmp = file.with_name(
+        file.stem + ".temporal" + extension
     )
 
-    comando = [
+    command = [
         "ffmpeg",
         "-y",
         "-v", "error",
-        "-i", str(archivo),
+        "-i", str(file),
 
-        # Conservar audio, imágenes y demás streams
+        # Keep audio, images and other streams
         "-map", "0",
         "-map_metadata", "0",
         "-c", "copy",
 
         "-id3v2_version", "3",
 
-        "-metadata", f"artist={artista}",
-        "-metadata", f"title={titulo}",
-        "-metadata", f"track={numero}",
+        "-metadata", f"artist={artist}",
+        "-metadata", f"title={title}",
+        "-metadata", f"track={number}",
         "-metadata", "comment="
     ]
 
-    if genero:
-        comando.extend([
-            "-metadata", f"genre={genero}"
+    if gender:
+        command.extend([
+            "-metadata", f"genre={gender}"
         ])
 
-    if anio:
-        comando.extend([
-            "-metadata", f"date={anio}"
+    if year:
+        command.extend([
+            "-metadata", f"date={year}"
         ])
 
-    comando.append(str(temporal))
+    command.append(str(tmp))
 
-    resultado = subprocess.run(comando)
+    result = subprocess.run(command)
 
-    if resultado.returncode != 0 or not temporal.is_file():
+    if result.returncode != 0 or not tmp.is_file():
 
-        print(f"ERROR procesando {archivo.name}")
+        print(f"ERROR processing {file.name}")
 
-        temporal.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)
         return None
 
-    os.replace(temporal, archivo)
+    os.replace(tmp, file)
 
-    if destino != archivo:
-        archivo.rename(destino)
+    if destiny != file:
+        file.rename(destiny)
 
-    print(f"Procesado: {destino.name}")
+    print(f"Processed: {destiny.name}")
 
-    return destino
+    return destiny
 
 
 # ==========================================
-# PROCESAR TODAS LAS CANCIONES
+# PROCESS ALL SONGS
 # ==========================================
 
-def procesar_album(genero, anio):
+def processAlbum(gender, year):
 
-    carpeta_origen = Path.cwd()
+    sourceFolder = Path.cwd()
 
-    archivos = sorted(
+    files = sorted(
         [
-            f for f in carpeta_origen.iterdir()
+            f for f in sourceFolder.iterdir()
             if f.is_file() and f.suffix.lower() == ".mp3"
         ]
     )
 
-    if not archivos:
-        print("No se encontraron archivos MP3.")
+    if not files:
+        print("Couldn't find any MP3 file.")
         return
 
-    print(f"\nCanciones encontradas: {len(archivos)}")
+    print(f"\nFound songs: {len(files)}")
 
-    canciones = []
+    songs = []
 
-    for archivo in archivos:
+    for file in files:
 
-        tags = obtener_metadatos(archivo)
+        tags = getMetadata(file)
 
-        artista = obtener_tag(tags, "artist")
-        album = obtener_tag(tags, "album")
-        titulo = obtener_tag(tags, "title")
+        artist = getTags(tags, "artist")
+        album = getTags(tags, "album")
+        title = getTags(tags, "title")
 
-        if not artista or not album:
-            print(f"Faltan metadatos en {archivo.name}")
+        if not artist or not album:
+            print(f"missing metadata fields in {file.name}")
             continue
 
-        if not titulo:
-            titulo = archivo.stem
+        if not title:
+            title = file.stem
 
-        canciones.append({
-            "archivo": archivo,
-            "artista": artista,
+        songs.append({
+            "file": file,
+            "artist": artist,
             "album": album,
-            "titulo": titulo,
+            "title": title,
             "tags": tags,
-            "numero": obtener_numero_pista(tags)
+            "number": getTrackNumber(tags)
         })
 
-    if not canciones:
-        print("No hay canciones con metadatos suficientes.")
+    if not songs:
+        print("Not found ant songs with enough metadata.")
         return
 
-    # Comprobar que todas pertenecen al mismo álbum
+    # Check all are part of the same album
 
-    album = canciones[0]["album"]
+    album = songs[0]["album"]
 
     if any(
         c["album"].casefold() != album.casefold()
-        for c in canciones
+        for c in songs
     ):
-        print("ERROR: Hay canciones de distintos álbumes.")
+        print("ERROR: there are songs of different album")
         return
 
-    # Ordenar por número de pista
+    # Sort for track number
 
-    canciones.sort(
+    songs.sort(
         key=lambda c: (
-            c["numero"],
-            c["archivo"].name.casefold()
+            c["number"],
+            c["file"].name.casefold()
         )
     )
 
     # ======================================
-    # DETECTAR PROYECTO COLABORATIVO
+    # DETECT COLABORATIVE PROYECT
     # ======================================
 
-    todas_colaborativas = all(
-        es_colaboracion(c["artista"])
-        for c in canciones
+    allColaborative = all(
+        isColaboration(c["artist"])
+        for c in songs
     )
 
     print(
-        "\nTodas las canciones son colaborativas:",
-        todas_colaborativas
+        "\nAll the songs are colaborative: ",
+        allColaborative
     )
 
     # ======================================
-    # DETERMINAR ARTISTA DEL ÁLBUM
+    # DETERMINE ALBUM ARTIST
     # ======================================
 
     album_artist = next(
         (
-            obtener_tag(c["tags"], "album_artist")
-            for c in canciones
-            if obtener_tag(c["tags"], "album_artist")
+            getTags(c["tags"], "album_artist")
+            for c in songs
+            if getTags(c["tags"], "album_artist")
         ),
         ""
     )
 
-    if todas_colaborativas:
+    if allColaborative:
 
-        # Proyecto colaborativo:
-        # conservar todos los artistas del álbum.
+        # Colaborative proyect:
+        # Keep all album artists.
 
         if album_artist:
-            artista_carpeta = " & ".join(
-                separar_artistas(album_artist)
+            artist_folder = " & ".join(
+                splitArtists(album_artist)
             )
         else:
-            artistas_album = []
+            albumArtists = []
 
-            for c in canciones:
-                for artista in separar_artistas(c["artista"]):
-                    if artista.casefold() not in [
-                        a.casefold() for a in artistas_album
+            for s in songs:
+                for artist in splitArtists(s["artist"]):
+                    if artist.casefold() not in [
+                        a.casefold() for a in albumArtists
                     ]:
-                        artistas_album.append(artista)
+                        albumArtists.append(artist)
 
-            artista_carpeta = " & ".join(artistas_album)
+            artist_folder = " & ".join(albumArtists)
 
     else:
 
-        # Álbum normal:
-        # conservar solamente el artista principal.
+        # Normal album:
+        # Keep just the main artist.
 
         if album_artist:
-            artista_carpeta = separar_artistas(album_artist)[0]
+            artist_folder = splitArtists(album_artist)[0]
         else:
-            artista_carpeta = separar_artistas(
-                canciones[0]["artista"]
+            artist_folder = splitArtists(
+                songs[0]["artista"]
             )[0]
 
-    nombre_carpeta = f"{artista_carpeta} - {album}"
+    folderName = f"{artist_folder} - {album}"
 
-    print("\nArtista del álbum:", artista_carpeta)
+    print("\nArtista del álbum:", artist_folder)
     print("Álbum:", album)
-    print("Carpeta:", nombre_carpeta)
+    print("Carpeta:", folderName)
 
     # ======================================
-    # PROCESAR CANCIONES
+    # PROCESS SONGS
     # ======================================
 
-    procesadas = []
+    processed = []
 
-    print("\nProcesando metadatos...\n")
+    print("\nProcessing metadata...\n")
 
-    for c in canciones:
+    for s in songs:
 
-        artista_final = normalizar_artista(
-            c["artista"],
-            todas_colaborativas
+        artista_final = normalize_artist(
+            s["artist"],
+            allColaborative
         )
 
-        resultado = procesar_cancion(
-            c["archivo"],
-            genero,
-            anio,
+        result = processSong(
+            s["archiv"],
+            gender,
+            year,
             artista_final,
-            c["titulo"],
-            c["numero"]
+            s["titul"],
+            s["numer"]
         )
 
-        if resultado:
-            procesadas.append(resultado)
+        if result:
+            processed.append(result)
 
-    if not procesadas:
-        print("No se pudo procesar ninguna canción.")
+    if not processed:
+        print("Couldn't process any s ong")
         return
 
     # ======================================
-    # CREAR CARPETA DEL ÁLBUM
+    # CREATE ALBUM'S FOLDER
     # ======================================
 
-    carpeta_album = carpeta_origen / nombre_carpeta
+    albumFolder = sourceFolder / folderName
 
-    carpeta_album.mkdir(exist_ok=True)
+    albumFolder.mkdir(exist_ok=True)
 
-    print(f"\nOrganizando álbum: {nombre_carpeta}")
+    print(f"\nOrganizing album: {folderName}")
 
-    for archivo in procesadas:
+    for file in processed:
 
-        destino = carpeta_album / archivo.name
+        destiny = albumFolder / file.name
 
-        if destino.exists():
-            print(f"ERROR: Ya existe {destino}")
+        if destiny.exists():
+            print(f"ERROR: already existing {destiny}")
             continue
 
-        shutil.move(str(archivo), str(destino))
+        shutil.move(str(file), str(destiny))
 
     # ======================================
-    # AÑADIR LETRAS
+    # ADD LYRICS
     # ======================================
 
-    print("\nAñadiendo letras...\n")
+    print("\n Adding lyrics...\n")
 
-    if not SCRIPT_LETRAS.is_file():
+    if not SCRIPT_LYRICS.is_file():
 
-        print("No se encuentra add_lyrics.py.")
+        print("Couldn't find add_lyrics.py.")
 
     else:
 
@@ -406,65 +408,65 @@ def procesar_album(genero, anio):
             else Path(sys.executable)
         )
 
-        for archivo in sorted(carpeta_album.glob("*.mp3")):
+        for file in sorted(albumFolder.glob("*.mp3")):
 
-            print(f"\nLetra: {archivo.name}")
+            print(f"\nLetra: {file.name}")
 
             subprocess.run([
                 str(python),
-                str(SCRIPT_LETRAS),
-                str(archivo)
+                str(SCRIPT_LYRICS),
+                str(file)
             ])
 
             time.sleep(3)
 
     # ======================================
-    # COPIAR A MÚSICA
+    # COPY TO MUSIC
     # ======================================
 
-    CARPETA_MUSICA.mkdir(
+    MUSIC_FOLDER.mkdir(
         parents=True,
         exist_ok=True
     )
 
-    destino_musica = CARPETA_MUSICA / nombre_carpeta
+    musicDestiny = MUSIC_FOLDER / folderName
 
-    origen_real = carpeta_album.resolve()
-    destino_real = destino_musica.resolve()
+    sourcePath = albumFolder.resolve()
+    destinyPath = musicDestiny.resolve()
 
-    if origen_real == destino_real:
+    if sourcePath == destinyPath:
 
-        print("\nEl álbum ya está en Música.")
+        print("\nThe album already on the destiny folder.")
 
     else:
 
         try:
 
             shutil.copytree(
-                carpeta_album,
-                destino_musica,
+                albumFolder,
+                musicDestiny,
                 dirs_exist_ok=True
             )
 
-            print("\nÁlbum copiado correctamente a:")
-            print(destino_musica)
+            print("\nAlbum copied succesfully to::")
+            print(musicDestiny)
 
         except OSError as e:
 
-            print("Error al copiar el álbum:", e)
+            print("Error while copying the album:", e)
 
     print("\n================================")
-    print("ÁLBUM PROCESADO")
+    print("ALBUM PROCESSED")
     print("================================")
-    print(f"Artista: {artista_carpeta}")
+    print(f"Artist: {artist_folder}")
     print(f"Álbum: {album}")
-    print(f"Carpeta: {nombre_carpeta}")
-    print(f"Canciones: {len(procesadas)}")
+    print(f"Folder: {folderName}")
+    print(f"Songs: {len(processed)}")
     print("================================")
 
 
 # ==========================================
-# PROGRAMA PRINCIPAL
+# MAIN
 # ==========================================
 
 def main():
@@ -472,19 +474,19 @@ def main():
     if len(sys.argv) < 3:
 
         print(
-            f"Uso: python3 {sys.argv[0]} "
-            "'género' 'año'"
+            f"Usage: python3 {sys.argv[0]} "
+            "'gender' 'year'"
         )
 
         sys.exit(1)
 
-    comprobar_programa("ffmpeg")
-    comprobar_programa("ffprobe")
+    checkProgram("ffmpeg")
+    checkProgram("ffprobe")
 
-    genero = sys.argv[1]
-    anio = sys.argv[2]
+    gender = sys.argv[1]
+    year = sys.argv[2]
 
-    procesar_album(genero, anio)
+    processAlbum(gender, year)
 
 
 if __name__ == "__main__":

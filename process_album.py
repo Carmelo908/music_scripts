@@ -125,7 +125,7 @@ def get_track_number(tags: Tags) -> int:
 
 def process_song(
     file: Path,
-    genre: str,
+    genre: Optional[str],
     year: Optional[int],
     artist: str,
     title: str,
@@ -161,6 +161,8 @@ def process_song(
         "-metadata", "comment=",
     ]
 
+    # Genre and year are optional: when they are not given, the metadata
+    # is not written (the file keeps the value it already had, if any)
     if genre:
         command.extend(["-metadata", f"genre={genre}"])
 
@@ -191,7 +193,7 @@ def process_song(
 # ==========================================
 
 def process_album(
-    genre: str,
+    genre: Optional[str],
     year: Optional[int],
     source_folder: Path,
     music_folder: Optional[Path],
@@ -408,13 +410,24 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
 
-    parser.add_argument("genre", help="Género a escribir en los metadatos")
+    parser.add_argument(
+        "genre",
+        nargs="?",
+        default=None,
+        help=(
+            "Género a escribir en los metadatos (opcional; si se omite, "
+            "no se escribe)"
+        ),
+    )
     parser.add_argument(
         "year",
         type=int,
         nargs="?",
         default=None,
-        help="Año del álbum (opcional)",
+        help=(
+            "Año del álbum (opcional; si se omite, no se escribe). "
+            "Si solo se indica un número, se toma como año"
+        ),
     )
     parser.add_argument(
         "-s", "--source",
@@ -462,6 +475,15 @@ def main() -> None:
         print(f"ERROR: {args.source} no es una carpeta válida.")
         sys.exit(1)
 
+    genre: Optional[str] = (args.genre or "").strip() or None
+    year: Optional[int] = args.year
+
+    # A single numeric argument is the year, not the genre
+    # (`organizar_album.py 1999`)
+    if genre is not None and year is None and genre.isdigit():
+        year = int(genre)
+        genre = None
+
     music_folder: Optional[Path] = None
 
     if not args.no_copy:
@@ -479,8 +501,8 @@ def main() -> None:
             music_folder = music_folder.expanduser()
 
     process_album(
-        genre=args.genre,
-        year=args.year,
+        genre=genre,
+        year=year,
         source_folder=args.source.resolve(),
         music_folder=music_folder,
         add_lyrics=not args.no_lyrics,

@@ -1,12 +1,15 @@
-import os
-import sys
+from __future__ import annotations
+
+import argparse
 import json
-import time
+import os
 import shutil
 import subprocess
-import dotenv
-
+import sys
 from pathlib import Path
+from typing import Optional, TypedDict
+
+import dotenv
 
 # ==========================================
 # CONFIGURATION
@@ -14,18 +17,22 @@ from pathlib import Path
 
 dotenv.load_dotenv()
 
-MUSIC_FOLDER = Path.home("MUSIC_FOLDER_DIR")
+SCRIPT_LYRICS: Path = Path(__file__).parent / "add_lyrics.py"
+PYTHON_BIN: Path = Path(__file__).parent / "bin" / "python"
 
-SCRIPT_LYRICS = (
-    Path(__file__).parent / "add_lyrics.py"
-)
+Tags = dict[str, str]
 
-PYTHON_BIN = (
-    Path(__file__).parent / "bin" / "python3"
-)
 
-def checkProgram(nombre):
+class Song(TypedDict):
+    file: Path
+    artist: str
+    album: str
+    title: str
+    tags: Tags
+    number: int
 
+
+def check_program(nombre: str) -> None:
     if shutil.which(nombre) is None:
         print(f"ERROR: not found {nombre}.")
         sys.exit(1)
@@ -35,18 +42,17 @@ def checkProgram(nombre):
 # READ METADATA
 # ==========================================
 
-def getMetadata(file):
-
+def get_metadata(file: Path) -> Tags:
     result = subprocess.run(
         [
             "ffprobe",
             "-v", "quiet",
             "-show_entries", "format_tags",
             "-of", "json",
-            str(file)
+            str(file),
         ],
         capture_output=True,
-        text=True
+        text=True,
     )
 
     if result.returncode != 0:
@@ -59,8 +65,7 @@ def getMetadata(file):
         return {}
 
 
-def getTags(tags, name):
-
+def get_tags(tags: Tags, name: str) -> str:
     for key, value in tags.items():
         if key.casefold() == name.casefold():
             return str(value).strip()
@@ -72,8 +77,7 @@ def getTags(tags, name):
 # ARTISTS
 # ==========================================
 
-def splitArtists(artist):
-
+def split_artists(artist: str) -> list[str]:
     return [
         nombre.strip()
         for nombre in artist.split("/")
@@ -81,14 +85,12 @@ def splitArtists(artist):
     ]
 
 
-def isColaboration(artist):
+def is_colaboration(artist: str) -> bool:
+    return len(split_artists(artist)) >= 2
 
-    return len(splitArtists(artist)) >= 2
 
-
-def normalize_artist(artist, all_colaborative):
-
-    artists = splitArtists(artist)
+def normalize_artist(artist: str, all_colaborative: bool) -> str:
+    artists = split_artists(artist)
 
     if not artists:
         return ""
@@ -103,9 +105,8 @@ def normalize_artist(artist, all_colaborative):
 # TRACK NUMBER
 # ==========================================
 
-def getTrackNumber(tags):
-
-    track = getTags(tags, "track")
+def get_track_number(tags: Tags) -> int:
+    track = get_tags(tags, "track")
 
     if not track:
         return 1
@@ -122,32 +123,26 @@ def getTrackNumber(tags):
 # PROCESS METADATA AND RENAME
 # ==========================================
 
-def processSong(
-    file,
-    gender,
-    year,
-    artist,
-    title,
-    number
-):
-
+def process_song(
+    file: Path,
+    genre: str,
+    year: Optional[int],
+    artist: str,
+    title: str,
+    number: int,
+) -> Optional[Path]:
     extension = file.suffix
 
-    newName = (
-        f"{number}. {artist} - {title}{extension}"
-    )
-
-    destiny = file.parent / newName
+    new_name = f"{number}. {artist} - {title}{extension}"
+    destiny = file.parent / new_name
 
     if destiny != file and destiny.exists():
         print(f"ERROR: Ya existe {destiny.name}")
         return None
 
-    tmp = file.with_name(
-        file.stem + ".temporal" + extension
-    )
+    tmp = file.with_name(file.stem + ".temporal" + extension)
 
-    command = [
+    command: list[str] = [
         "ffmpeg",
         "-y",
         "-v", "error",
@@ -163,27 +158,21 @@ def processSong(
         "-metadata", f"artist={artist}",
         "-metadata", f"title={title}",
         "-metadata", f"track={number}",
-        "-metadata", "comment="
+        "-metadata", "comment=",
     ]
 
-    if gender:
-        command.extend([
-            "-metadata", f"genre={gender}"
-        ])
+    if genre:
+        command.extend(["-metadata", f"genre={genre}"])
 
-    if year:
-        command.extend([
-            "-metadata", f"date={year}"
-        ])
+    if year is not None:
+        command.extend(["-metadata", f"date={year}"])
 
     command.append(str(tmp))
 
     result = subprocess.run(command)
 
     if result.returncode != 0 or not tmp.is_file():
-
         print(f"ERROR processing {file.name}")
-
         tmp.unlink(missing_ok=True)
         return None
 
@@ -201,15 +190,17 @@ def processSong(
 # PROCESS ALL SONGS
 # ==========================================
 
-def processAlbum(gender, year):
-
-    sourceFolder = Path.cwd()
-
+def process_album(
+    genre: str,
+    year: Optional[int],
+    source_folder: Path,
+    music_folder: Optional[Path],
+    add_lyrics: bool,
+    lyrics_delay: float,
+) -> None:
     files = sorted(
-        [
-            f for f in sourceFolder.iterdir()
-            if f.is_file() and f.suffix.lower() == ".mp3"
-        ]
+        f for f in source_folder.iterdir()
+        if f.is_file() and f.suffix.lower() == ".mp3"
     )
 
     if not files:
@@ -218,15 +209,14 @@ def processAlbum(gender, year):
 
     print(f"\nFound songs: {len(files)}")
 
-    songs = []
+    songs: list[Song] = []
 
     for file in files:
+        tags = get_metadata(file)
 
-        tags = getMetadata(file)
-
-        artist = getTags(tags, "artist")
-        album = getTags(tags, "album")
-        title = getTags(tags, "title")
+        artist = get_tags(tags, "artist")
+        album = get_tags(tags, "album")
+        title = get_tags(tags, "title")
 
         if not artist or not album:
             print(f"missing metadata fields in {file.name}")
@@ -241,143 +231,112 @@ def processAlbum(gender, year):
             "album": album,
             "title": title,
             "tags": tags,
-            "number": getTrackNumber(tags)
+            "number": get_track_number(tags),
         })
 
     if not songs:
-        print("Not found ant songs with enough metadata.")
+        print("Not found any songs with enough metadata.")
         return
 
     # Check all are part of the same album
 
     album = songs[0]["album"]
 
-    if any(
-        c["album"].casefold() != album.casefold()
-        for c in songs
-    ):
+    if any(c["album"].casefold() != album.casefold() for c in songs):
         print("ERROR: there are songs of different album")
         return
 
     # Sort for track number
 
-    songs.sort(
-        key=lambda c: (
-            c["number"],
-            c["file"].name.casefold()
-        )
-    )
+    songs.sort(key=lambda c: (c["number"], c["file"].name.casefold()))
 
     # ======================================
     # DETECT COLABORATIVE PROYECT
     # ======================================
 
-    allColaborative = all(
-        isColaboration(c["artist"])
-        for c in songs
-    )
+    all_colaborative = all(is_colaboration(c["artist"]) for c in songs)
 
-    print(
-        "\nAll the songs are colaborative: ",
-        allColaborative
-    )
+    print("\nAll the songs are colaborative: ", all_colaborative)
 
     # ======================================
     # DETERMINE ALBUM ARTIST
     # ======================================
 
-    album_artist = next(
+    album_artist: str = next(
         (
-            getTags(c["tags"], "album_artist")
+            get_tags(c["tags"], "album_artist")
             for c in songs
-            if getTags(c["tags"], "album_artist")
+            if get_tags(c["tags"], "album_artist")
         ),
-        ""
+        "",
     )
 
-    if allColaborative:
-
-        # Colaborative proyect:
-        # Keep all album artists.
-
+    if all_colaborative:
+        # Colaborative proyect: keep all album artists.
         if album_artist:
-            artist_folder = " & ".join(
-                splitArtists(album_artist)
-            )
+            artist_folder = " & ".join(split_artists(album_artist))
         else:
-            albumArtists = []
+            album_artists: list[str] = []
 
             for s in songs:
-                for artist in splitArtists(s["artist"]):
+                for artist in split_artists(s["artist"]):
                     if artist.casefold() not in [
-                        a.casefold() for a in albumArtists
+                        a.casefold() for a in album_artists
                     ]:
-                        albumArtists.append(artist)
+                        album_artists.append(artist)
 
-            artist_folder = " & ".join(albumArtists)
-
+            artist_folder = " & ".join(album_artists)
     else:
-
-        # Normal album:
-        # Keep just the main artist.
-
+        # Normal album: keep just the main artist.
         if album_artist:
-            artist_folder = splitArtists(album_artist)[0]
+            artist_folder = split_artists(album_artist)[0]
         else:
-            artist_folder = splitArtists(
-                songs[0]["artista"]
-            )[0]
+            artist_folder = split_artists(songs[0]["artist"])[0]
 
-    folderName = f"{artist_folder} - {album}"
+    folder_name = f"{artist_folder} - {album}"
 
     print("\nArtista del álbum:", artist_folder)
     print("Álbum:", album)
-    print("Carpeta:", folderName)
+    print("Carpeta:", folder_name)
 
     # ======================================
     # PROCESS SONGS
     # ======================================
 
-    processed = []
+    processed: list[Path] = []
 
     print("\nProcessing metadata...\n")
 
     for s in songs:
+        artista_final = normalize_artist(s["artist"], all_colaborative)
 
-        artista_final = normalize_artist(
-            s["artist"],
-            allColaborative
-        )
-
-        result = processSong(
-            s["archiv"],
-            gender,
+        result = process_song(
+            s["file"],
+            genre,
             year,
             artista_final,
-            s["titul"],
-            s["numer"]
+            s["title"],
+            s["number"],
         )
 
         if result:
             processed.append(result)
 
     if not processed:
-        print("Couldn't process any s ong")
+        print("Couldn't process any song")
         return
 
     # ======================================
     # CREATE ALBUM'S FOLDER
     # ======================================
 
-    albumFolder = sourceFolder / folderName
+    album_folder = source_folder / folder_name
+    album_folder.mkdir(exist_ok=True)
 
-    albumFolder.mkdir(exist_ok=True)
-
-    print(f"\nOrganizing album: {folderName}")
+    print(f"\nOrganizing album: {folder_name}")
 
     for file in processed:
-
-        destiny = albumFolder / file.name
+        destiny = album_folder / file.name
 
         if destiny.exists():
             print(f"ERROR: already existing {destiny}")
@@ -389,73 +348,49 @@ def processAlbum(gender, year):
     # ADD LYRICS
     # ======================================
 
-    print("\n Adding lyrics...\n")
+    if add_lyrics:
+        print("\n Adding lyrics...\n")
 
-    if not SCRIPT_LYRICS.is_file():
+        if not SCRIPT_LYRICS.is_file():
+            print("Couldn't find add_lyrics.py.")
+        else:
+            python = PYTHON_BIN if PYTHON_BIN.is_file() else Path(sys.executable)
 
-        print("Couldn't find add_lyrics.py.")
-
-    else:
-
-        python = (
-            PYTHON_BIN
-            if PYTHON_BIN.is_file()
-            else Path(sys.executable)
-        )
-
-        for file in sorted(albumFolder.glob("*.mp3")):
-
-            print(f"\nLetra: {file.name}")
-
+            # A single call with the folder: add_lyrics.py processes every MP3
+            # and reuses one Playwright instance for the whole album.
             subprocess.run([
                 str(python),
                 str(SCRIPT_LYRICS),
-                str(file)
+                "--delay", str(lyrics_delay),
+                str(album_folder),
             ])
-
-            time.sleep(3)
 
     # ======================================
     # COPY TO MUSIC
     # ======================================
 
-    MUSIC_FOLDER.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    if music_folder is not None:
+        music_folder.mkdir(parents=True, exist_ok=True)
 
-    musicDestiny = MUSIC_FOLDER / folderName
+        music_destiny = music_folder / folder_name
 
-    sourcePath = albumFolder.resolve()
-    destinyPath = musicDestiny.resolve()
+        if album_folder.resolve() == music_destiny.resolve():
+            print("\nThe album already on the destiny folder.")
+        else:
+            try:
+                shutil.copytree(album_folder, music_destiny, dirs_exist_ok=True)
 
-    if sourcePath == destinyPath:
-
-        print("\nThe album already on the destiny folder.")
-
-    else:
-
-        try:
-
-            shutil.copytree(
-                albumFolder,
-                musicDestiny,
-                dirs_exist_ok=True
-            )
-
-            print("\nAlbum copied succesfully to::")
-            print(musicDestiny)
-
-        except OSError as e:
-
-            print("Error while copying the album:", e)
+                print("\nAlbum copied succesfully to::")
+                print(music_destiny)
+            except OSError as e:
+                print("Error while copying the album:", e)
 
     print("\n================================")
     print("ALBUM PROCESSED")
     print("================================")
     print(f"Artist: {artist_folder}")
     print(f"Álbum: {album}")
-    print(f"Folder: {folderName}")
+    print(f"Folder: {folder_name}")
     print(f"Songs: {len(processed)}")
     print("================================")
 
@@ -464,24 +399,93 @@ def processAlbum(gender, year):
 # MAIN
 # ==========================================
 
-def main():
-
-    if len(sys.argv) < 3:
-
-        print(
-            f"Usage: python3 {sys.argv[0]} "
-            "'gender' 'year'"
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Normaliza los metadatos de los MP3 de un álbum, los renombra, "
+            "los organiza en una carpeta, agrega letras y copia el resultado "
+            "a la carpeta de música."
         )
+    )
 
+    parser.add_argument("genre", help="Género a escribir en los metadatos")
+    parser.add_argument(
+        "year",
+        type=int,
+        nargs="?",
+        default=None,
+        help="Año del álbum (opcional)",
+    )
+    parser.add_argument(
+        "-s", "--source",
+        type=Path,
+        default=Path.cwd(),
+        help="Carpeta con los MP3 a procesar (por defecto: la actual)",
+    )
+    parser.add_argument(
+        "-m", "--music-folder",
+        type=Path,
+        default=None,
+        help=(
+            "Carpeta de música de destino "
+            "(por defecto: variable de entorno MUSIC_FOLDER_DIR)"
+        ),
+    )
+    parser.add_argument(
+        "--no-copy",
+        action="store_true",
+        help="No copiar el álbum a la carpeta de música",
+    )
+    parser.add_argument(
+        "--no-lyrics",
+        action="store_true",
+        help="No agregar letras (omite add_lyrics.py)",
+    )
+    parser.add_argument(
+        "--lyrics-delay",
+        type=float,
+        default=3.0,
+        metavar="SEGUNDOS",
+        help="Pausa entre canciones al buscar letras (por defecto: 3)",
+    )
+
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+
+    check_program("ffmpeg")
+    check_program("ffprobe")
+
+    if not args.source.is_dir():
+        print(f"ERROR: {args.source} no es una carpeta válida.")
         sys.exit(1)
 
-    checkProgram("ffmpeg")
-    checkProgram("ffprobe")
+    music_folder: Optional[Path] = None
 
-    gender = sys.argv[1]
-    year = sys.argv[2]
+    if not args.no_copy:
+        music_folder = args.music_folder
+        if music_folder is None:
+            env_value = os.getenv("MUSIC_FOLDER_DIR")
+            if not env_value:
+                print(
+                    "ERROR: define MUSIC_FOLDER_DIR, use --music-folder "
+                    "o --no-copy."
+                )
+                sys.exit(1)
+            music_folder = Path(env_value).expanduser()
+        else:
+            music_folder = music_folder.expanduser()
 
-    processAlbum(gender, year)
+    process_album(
+        genre=args.genre,
+        year=args.year,
+        source_folder=args.source.resolve(),
+        music_folder=music_folder,
+        add_lyrics=not args.no_lyrics,
+        lyrics_delay=args.lyrics_delay,
+    )
 
 
 if __name__ == "__main__":

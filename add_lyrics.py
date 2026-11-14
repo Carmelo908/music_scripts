@@ -3,6 +3,7 @@ import os
 import re
 import lyricsgenius
 import eyed3
+import dotenv
 
 from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
@@ -11,17 +12,18 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 # CONFIGURATION
 # ==========================================
 
+dotenv.load_dotenv()
+
 GENIUS_TOKEN = os.getenv("GENIUS_TOKEN")
 
 if not GENIUS_TOKEN:
     print("ERROR: Missing GENIUS_TOKEN.")
     sys.exit(1)
 
-WAIT_TIME = 90 * 1000
+PLAYWRIGHT_WAIT_SECONDS = os.getenv("PLAYWRIGHT_WAIT_SECONDS")
 
-
-PLAYWRIGHT_PROFILE = Path.home() / "Programas" / "scripts" / "perfil_genius"
-PLAYWRIGHT_PROFILE.mkdir(parents=True, exist_ok=True)
+PLAYWRIGHT_PROFILE_DIR = Path(os.getenv("PLAYWRIGHT_PROFILE_DIR"))
+PLAYWRIGHT_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Ask before inserting "[Instrumental]""
 MARK_INSTRUMENTAL = False
@@ -72,7 +74,7 @@ def getLyricsPlaywright(url):
        with sync_playwright() as p:
 
         context = p.firefox.launch_persistent_context(
-            user_data_dir=str(PLAYWRIGHT_PROFILE),
+            user_data_dir=str(PLAYWRIGHT_PROFILE_DIR),
             headless=False,
             viewport={"width": 1366, "height": 900}
         )

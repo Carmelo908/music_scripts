@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
-
 import os
 import sys
 import json
 import time
 import shutil
 import subprocess
+import dotenv
 
 from pathlib import Path
 
@@ -13,21 +12,17 @@ from pathlib import Path
 # CONFIGURATION
 # ==========================================
 
-# TO DO: extract these to a .env file
+dotenv.load_dotenv()
 
-MUSIC_FOLDER = Path.home() / "Música"
+MUSIC_FOLDER = Path.home("MUSIC_FOLDER_DIR")
 
 SCRIPT_LYRICS = (
-    Path.home() / "Programas" / "scripts" / "add_lyrics.py"
+    Path(__file__).parent / "add_lyrics.py"
 )
 
-PYTHON_LETRAS = (
-    Path.home() / "Programas" / "scripts" / "bin" / "python3"
+PYTHON_BIN = (
+    Path(__file__).parent / "bin" / "python3"
 )
-
-# ==========================================
-# 
-# ==========================================
 
 def checkProgram(nombre):
 
@@ -403,8 +398,8 @@ def processAlbum(gender, year):
     else:
 
         python = (
-            PYTHON_LETRAS
-            if PYTHON_LETRAS.is_file()
+            PYTHON_BIN
+            if PYTHON_BIN.is_file()
             else Path(sys.executable)
         )
 
@@ -491,4 +486,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

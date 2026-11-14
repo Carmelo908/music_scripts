@@ -6,8 +6,14 @@ Currently, these scripts only work in Linux and are not guaranteed to work on Wi
 
 ## Required modules
 
-These scripts require the Python modules eyed3, lyricsgenius and playwright.
+These scripts require the following modules installed to work:
 
-Genius requires a token which is accessed from the enviroment variable GENIUS_TOKEN. In order to get the lyrics, you need to create an API key and set it to that enviroment variable.
+```shell
+pip install eyed3 lyricsgenius playwright python-dotenv
+```
+
+to use these scripts, you need to copy the [.env.example](./.env.example) file and fill the fields following the instructions in the comments.
+
+Genius requires an API token. In order to get the lyrics, you need to create a GENIUS API key and set it to that enviroment variable.
 
 Playwright also must be installed with a specific browser after installing the pip package and it stores the profiles in the user folder.

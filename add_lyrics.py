@@ -21,6 +21,7 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeout,
     sync_playwright,
 )
+from playwright_stealth import Stealth
 
 # ==========================================
 # CONFIGURATION
@@ -28,7 +29,11 @@ from playwright.sync_api import (
 
 dotenv.load_dotenv()
 
-PLAYWRIGHT_BROWSER: str = os.getenv("PLAYWRIGHT_BROWSER")
+VALID_BROWSERS: tuple[str, ...] = ("FIREFOX", "CHROMIUM", "WEBKIT")
+
+PLAYWRIGHT_BROWSER: str = (
+    os.getenv("PLAYWRIGHT_BROWSER") or "FIREFOX"
+).strip().upper()
 
 DEFAULT_PROFILE_DIR: Path = Path(__file__).parent / "playwright_profile"
 DEFAULT_WAIT_SECONDS: int = 180
@@ -78,7 +83,8 @@ def sanitize_lyrics(lyrics: str, title: str) -> str:
 
 class GeniusBrowser:
     """
-    Single Playwright/Firefox instance shared by the whole script.
+    Single Playwright instance shared by the whole script, with
+    playwright-stealth applied to its context.
 
     The browser is started lazily on the first request (so nothing is
     opened if no song needs it) and closed when leaving the `with` block.
@@ -104,6 +110,7 @@ class GeniusBrowser:
     def _get_page(self) -> Page:
         if self._context is None:
             self.profile_dir.mkdir(parents=True, exist_ok=True)
+
             self._playwright = sync_playwright().start()
 
             browser: BrowserType
@@ -114,12 +121,20 @@ class GeniusBrowser:
                     browser = self._playwright.chromium
                 case "WEBKIT":
                     browser = self._playwright.webkit
+                case _:
+                    raise ValueError(
+                        f"Invalid PLAYWRIGHT_BROWSER: {PLAYWRIGHT_BROWSER}"
+                    )
 
             self._context = browser.launch_persistent_context(
                 user_data_dir=str(self.profile_dir),
                 headless=False,
                 viewport={"width": 1366, "height": 900},
             )
+
+            # Patches the browser fingerprint (navigator.webdriver, etc.)
+            # for every page of the context, including the existing ones.
+            Stealth().apply_stealth_sync(self._context)
 
         pages = self._context.pages
         return pages[0] if pages else self._context.new_page()
@@ -394,6 +409,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if PLAYWRIGHT_BROWSER not in VALID_BROWSERS:
+        print(
+            f"ERROR: PLAYWRIGHT_BROWSER={PLAYWRIGHT_BROWSER!r} is not valid. "
+            f"Use one of: {', '.join(VALID_BROWSERS)}."
+        )
+        return 1
 
     token = os.getenv("GENIUS_TOKEN")
 

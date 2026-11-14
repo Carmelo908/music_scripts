@@ -56,7 +56,62 @@ def env_int(name: str, default: int) -> int:
 # SANITIZE LYRICS
 # ==========================================
 
-def sanitize_lyrics(lyrics: str, title: str) -> str:
+# Elements that Genius shows inside the lyrics container but are not lyrics:
+# the header (contributors, translations, description, "Read More") and the
+# blocks it marks as excluded from selection (ads, "You might also like"...)
+NON_LYRICS_SELECTOR: str = (
+    '[data-exclude-from-selection="true"], [class*="LyricsHeader"]'
+)
+
+# Builds the text of each lyrics container from the DOM instead of using
+# innerText: only <br> produces a line break, so lines that are shown
+# together in the page (each annotated line is a block-level link) don't get
+# an extra blank line between them.
+EXTRACT_LYRICS_JS: str = """
+selector => {
+    const walk = node => {
+        let text = "";
+
+        node.childNodes.forEach(child => {
+            if (child.nodeType === Node.TEXT_NODE) {
+                text += child.textContent.replace(/[ \\t\\r\\n]+/g, " ");
+            } else if (child.nodeType === Node.ELEMENT_NODE) {
+                if (child.matches(selector)) {
+                    return;
+                }
+
+                text += child.tagName === "BR" ? "\\n" : walk(child);
+            }
+        });
+
+        return text;
+    };
+
+    return Array.from(
+        document.querySelectorAll('[data-lyrics-container="true"]'),
+        walk
+    );
+}
+"""
+
+HEADER_SCAN_LINES: int = 40
+DESCRIPTION_SCAN_CHARS: int = 2000
+
+
+def strip_header(lyrics: str, title: str) -> str:
+    """
+    Removes what Genius puts before the lyrics: "N Contributors",
+    "Translations" (and the list of languages) and the "<title> Lyrics" line.
+    """
+
+    lines = lyrics.splitlines()
+    expected = f"{title} lyrics".casefold()
+
+    for index, line in enumerate(lines[:HEADER_SCAN_LINES]):
+        if line.strip().casefold() == expected:
+            return "\n".join(lines[index + 1:])
+
+    # The title line wasn't found: remove the known lines individually
     lyrics = re.sub(
         r"^\s*\d+\s+Contributors\s*\n",
         "",
@@ -65,12 +120,44 @@ def sanitize_lyrics(lyrics: str, title: str) -> str:
     )
 
     lyrics = re.sub(
-        r"^\s*" + re.escape(title) + r"\s+Lyrics\s*\n",
+        r"^\s*Translations\s*\n",
         "",
         lyrics,
         count=1,
         flags=re.IGNORECASE,
     )
+
+    return lyrics
+
+
+def strip_description(lyrics: str) -> str:
+    """
+    Removes the song description that Genius shows before the lyrics,
+    which ends with "… Read More".
+    """
+
+    head = lyrics[:DESCRIPTION_SCAN_CHARS]
+    match = re.search(r"Read More[ \t]*(?:\n|$)", head)
+
+    if match is None:
+        return lyrics
+
+    # If a section header ([Intro], [Verse 1]...) comes first, the
+    # "Read More" is part of the lyrics themselves
+    before = head[:match.start()]
+
+    if any(line.lstrip().startswith("[") for line in before.splitlines()):
+        return lyrics
+
+    return lyrics[match.end():]
+
+
+def sanitize_lyrics(lyrics: str, title: str) -> str:
+    lyrics = lyrics.replace("\xa0", " ")
+    lyrics = re.sub(r"(?m)^[ \t]+|[ \t]+$", "", lyrics)
+
+    lyrics = strip_header(lyrics, title)
+    lyrics = strip_description(lyrics)
 
     lyrics = re.sub(r"\n{3,}", "\n\n", lyrics)
 
@@ -168,7 +255,15 @@ class GeniusBrowser:
                 raise RuntimeError("The browser page was closed.")
 
             if containers.count() > 0:
-                lyrics = "\n".join(containers.all_inner_texts()).strip()
+                try:
+                    parts: list[str] = page.evaluate(
+                        EXTRACT_LYRICS_JS, NON_LYRICS_SELECTOR
+                    )
+                except PlaywrightError:
+                    # The page may be navigating, try again
+                    parts = []
+
+                lyrics = "\n".join(parts).strip()
 
                 if lyrics:
                     print("Lyrics found succesfully.")
